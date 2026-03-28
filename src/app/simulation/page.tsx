@@ -266,20 +266,7 @@ function SimulationContent() {
     speak("안녕하세요, 테스트 음성입니다.");
   }, [speak]);
 
-  // TTS: read new scammer messages aloud
-  useEffect(() => {
-    if (!selectedScenario || !ttsEnabled || result) return;
-    const phase = selectedScenario.phases[currentPhase];
-    if (!phase || messagesShown === 0) return;
-    const lastMsg = phase.messages[messagesShown - 1];
-    if (lastMsg && lastMsg.sender === "scammer") {
-      const key = `${currentPhase}-${messagesShown - 1}`;
-      if (lastSpokenRef.current !== key) {
-        lastSpokenRef.current = key;
-        setTimeout(() => speak(lastMsg.text), 100);
-      }
-    }
-  }, [selectedScenario, currentPhase, messagesShown, ttsEnabled, result, speak]);
+  // TTS: removed old message-based trigger (now handled in typing animation)
 
   // TTS: cleanup on unmount
   useEffect(() => {
@@ -314,14 +301,25 @@ function SimulationContent() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messagesShown, isTyping]);
 
-  // Message animation
+  // Message animation — TTS starts at typing, text appears after
   useEffect(() => {
     if (!selectedScenario || result) return;
     const phase = selectedScenario.phases[currentPhase];
     if (!phase) return;
 
     if (messagesShown < phase.messages.length) {
+      const nextMsg = phase.messages[messagesShown];
       setIsTyping(true);
+
+      // Start TTS immediately when typing begins (voice plays during typing dots)
+      if (ttsEnabled && nextMsg && nextMsg.sender === "scammer") {
+        const key = `${currentPhase}-${messagesShown}`;
+        if (lastSpokenRef.current !== key) {
+          lastSpokenRef.current = key;
+          speak(nextMsg.text);
+        }
+      }
+
       const timer = setTimeout(() => {
         setIsTyping(false);
         setMessagesShown((prev) => prev + 1);
@@ -620,7 +618,7 @@ function SimulationContent() {
   const isKakao = selectedScenario.type === "kakaotalk";
 
   return (
-    <div className="min-h-screen bg-gray-900 py-6 px-4 flex flex-col items-center">
+    <div className="min-h-screen bg-gray-900 pt-2 pb-6 px-4 flex flex-col items-center">
       {/* Red Flag Counter + TTS Controls */}
       <div className="w-full max-w-sm mb-4 space-y-2">
         <div className="flex items-center gap-2">
