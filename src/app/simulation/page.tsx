@@ -209,74 +209,6 @@ function SimulationContent() {
   const [animatingRedFlag, setAnimatingRedFlag] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // TTS (Text-to-Speech) state
-  const [ttsEnabled, setTtsEnabled] = useState(true);
-  const [isSpeaking, setIsSpeaking] = useState(false);
-  const [showVoiceSettings, setShowVoiceSettings] = useState(false);
-  const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
-  const [selectedVoiceIndex, setSelectedVoiceIndex] = useState(0);
-  const [ttsRate, setTtsRate] = useState(0.9);
-  const [ttsPitch, setTtsPitch] = useState(1.0);
-  const lastSpokenRef = useRef<string>("");
-
-  // TTS: preload voices (Chrome loads them asynchronously)
-  useEffect(() => {
-    if (typeof window === "undefined" || !window.speechSynthesis) return;
-    const loadVoices = () => {
-      const voices = window.speechSynthesis.getVoices();
-      const koVoices = voices.filter((v) => v.lang.startsWith("ko"));
-      if (koVoices.length > 0) {
-        setAvailableVoices(koVoices);
-        // Prefer "Natural" or "Online" voices (more natural sounding)
-        const naturalIdx = koVoices.findIndex((v) =>
-          v.name.includes("Natural") || v.name.includes("Online")
-        );
-        if (naturalIdx >= 0) setSelectedVoiceIndex(naturalIdx);
-      } else if (voices.length > 0) {
-        // Fallback: no Korean voices, show all
-        setAvailableVoices(voices);
-      }
-    };
-    loadVoices();
-    window.speechSynthesis.addEventListener("voiceschanged", loadVoices);
-    return () => {
-      window.speechSynthesis.removeEventListener("voiceschanged", loadVoices);
-    };
-  }, []);
-
-  // TTS: speak a message
-  const speak = useCallback((text: string) => {
-    if (!ttsEnabled || typeof window === "undefined" || !window.speechSynthesis) return;
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = "ko-KR";
-    utterance.rate = ttsRate;
-    utterance.pitch = ttsPitch;
-    if (availableVoices.length > 0 && availableVoices[selectedVoiceIndex]) {
-      utterance.voice = availableVoices[selectedVoiceIndex];
-    }
-    utterance.onstart = () => setIsSpeaking(true);
-    utterance.onend = () => setIsSpeaking(false);
-    utterance.onerror = () => setIsSpeaking(false);
-    window.speechSynthesis.speak(utterance);
-  }, [ttsEnabled, ttsRate, ttsPitch, availableVoices, selectedVoiceIndex]);
-
-  // TTS: test voice
-  const testVoice = useCallback(() => {
-    speak("안녕하세요, 테스트 음성입니다.");
-  }, [speak]);
-
-  // TTS: removed old message-based trigger (now handled in typing animation)
-
-  // TTS: cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (typeof window !== "undefined" && window.speechSynthesis) {
-        window.speechSynthesis.cancel();
-      }
-    };
-  }, []);
-
   // Auto-select scenario from URL param
   useEffect(() => {
     const id = searchParams.get("id");
@@ -301,25 +233,14 @@ function SimulationContent() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messagesShown, isTyping]);
 
-  // Message animation — TTS starts at typing, text appears after
+  // Message animation
   useEffect(() => {
     if (!selectedScenario || result) return;
     const phase = selectedScenario.phases[currentPhase];
     if (!phase) return;
 
     if (messagesShown < phase.messages.length) {
-      const nextMsg = phase.messages[messagesShown];
       setIsTyping(true);
-
-      // Start TTS immediately when typing begins (voice plays during typing dots)
-      if (ttsEnabled && nextMsg && nextMsg.sender === "scammer") {
-        const key = `${currentPhase}-${messagesShown}`;
-        if (lastSpokenRef.current !== key) {
-          lastSpokenRef.current = key;
-          speak(nextMsg.text);
-        }
-      }
-
       const timer = setTimeout(() => {
         setIsTyping(false);
         setMessagesShown((prev) => prev + 1);
@@ -420,11 +341,6 @@ function SimulationContent() {
 
   // Reset everything
   const handleReset = useCallback(() => {
-    if (typeof window !== "undefined" && window.speechSynthesis) {
-      window.speechSynthesis.cancel();
-    }
-    setIsSpeaking(false);
-    lastSpokenRef.current = "";
     setSelectedScenario(null);
     setCurrentPhase(0);
     setMessagesShown(0);
@@ -619,174 +535,24 @@ function SimulationContent() {
 
   return (
     <div className="min-h-screen bg-gray-900 pt-2 pb-6 px-4 flex flex-col items-center">
-      {/* Red Flag Counter + TTS Controls */}
-      <div className="w-full max-w-sm mb-4 space-y-2">
-        <div className="flex items-center gap-2">
-          <div
-            className="flex-1 px-4 py-2.5 rounded-xl text-sm font-semibold text-white flex items-center justify-between transition-all"
-            style={{ backgroundColor: selectedScenario.color }}
+      {/* Red Flag Counter */}
+      <div
+        className="w-full max-w-sm mb-4 px-4 py-2.5 rounded-xl text-sm font-semibold text-white flex items-center justify-between transition-all"
+        style={{ backgroundColor: selectedScenario.color }}
+      >
+        <span className="flex items-center gap-2">
+          <span>&#x1F6A9;</span>
+          <span>
+            {foundRedFlags.length}/{totalRedFlags} 위험 신호 감지
+          </span>
+        </span>
+        {animatingRedFlag && newRedFlag && (
+          <span
+            className="text-xs bg-white/20 px-2 py-1 rounded-full"
+            style={{ animation: "flagPulse 1s ease-out" }}
           >
-            <span className="flex items-center gap-2">
-              <span>&#x1F6A9;</span>
-              <span>
-                {foundRedFlags.length}/{totalRedFlags} 위험 신호 감지
-              </span>
-            </span>
-            {animatingRedFlag && newRedFlag && (
-              <span
-                className="text-xs bg-white/20 px-2 py-1 rounded-full"
-                style={{ animation: "flagPulse 1s ease-out" }}
-              >
-                +1 발견!
-              </span>
-            )}
-          </div>
-          {/* TTS on/off */}
-          <button
-            onClick={() => {
-              const next = !ttsEnabled;
-              setTtsEnabled(next);
-              if (!next && typeof window !== "undefined" && window.speechSynthesis) {
-                window.speechSynthesis.cancel();
-                setIsSpeaking(false);
-              }
-            }}
-            className="shrink-0 w-11 h-11 rounded-xl flex items-center justify-center transition-all cursor-pointer"
-            style={{
-              backgroundColor: ttsEnabled ? selectedScenario.color : "#374151",
-              border: ttsEnabled ? "none" : "1px solid #4B5563",
-            }}
-            title={ttsEnabled ? "음성 끄기" : "음성 켜기"}
-          >
-            {ttsEnabled ? (
-              isSpeaking ? (
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" fill="white" />
-                  <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
-                  <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
-                </svg>
-              ) : (
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" fill="white" />
-                  <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
-                </svg>
-              )
-            ) : (
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
-                <line x1="23" y1="9" x2="17" y2="15" />
-                <line x1="17" y1="9" x2="23" y2="15" />
-              </svg>
-            )}
-          </button>
-          {/* Voice settings toggle */}
-          <button
-            onClick={() => setShowVoiceSettings(!showVoiceSettings)}
-            className="shrink-0 w-11 h-11 rounded-xl flex items-center justify-center transition-all cursor-pointer"
-            style={{
-              backgroundColor: showVoiceSettings ? selectedScenario.color : "#374151",
-              border: showVoiceSettings ? "none" : "1px solid #4B5563",
-            }}
-            title="음성 설정"
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={showVoiceSettings ? "white" : "#9CA3AF"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="3" />
-              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-            </svg>
-          </button>
-        </div>
-
-        {/* Voice Settings Panel */}
-        {showVoiceSettings && (
-          <div
-            className="bg-gray-800 rounded-xl p-4 space-y-3 border border-gray-700"
-            style={{ animation: "fadeInUp 0.3s ease-out" }}
-          >
-            <div className="flex items-center justify-between">
-              <span className="text-white text-sm font-semibold">음성 설정</span>
-              <button
-                onClick={testVoice}
-                className="text-xs px-3 py-1.5 rounded-lg font-medium transition-all cursor-pointer text-white"
-                style={{ backgroundColor: selectedScenario.color }}
-              >
-                테스트
-              </button>
-            </div>
-
-            {/* Voice Select */}
-            {availableVoices.length > 0 && (
-              <div>
-                <label className="text-gray-400 text-xs block mb-1">목소리</label>
-                <select
-                  value={selectedVoiceIndex}
-                  onChange={(e) => setSelectedVoiceIndex(Number(e.target.value))}
-                  className="w-full bg-gray-700 text-white text-sm rounded-lg px-3 py-2 border border-gray-600 focus:outline-none cursor-pointer"
-                  style={{ focusRing: "none" } as React.CSSProperties}
-                >
-                  {availableVoices.map((voice, i) => (
-                    <option key={i} value={i}>
-                      {voice.name.replace("Microsoft ", "").replace(" Online (Natural)", " (자연스러운)")}
-                      {voice.name.includes("Natural") || voice.name.includes("Online") ? " ★" : ""}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-
-            {/* Rate Slider */}
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="text-gray-400 text-xs">속도</label>
-                <span className="text-gray-500 text-xs">{ttsRate.toFixed(1)}x</span>
-              </div>
-              <input
-                type="range"
-                min="0.5"
-                max="1.5"
-                step="0.1"
-                value={ttsRate}
-                onChange={(e) => setTtsRate(Number(e.target.value))}
-                className="w-full h-1.5 rounded-full appearance-none cursor-pointer"
-                style={{
-                  background: `linear-gradient(to right, ${selectedScenario.color} 0%, ${selectedScenario.color} ${((ttsRate - 0.5) / 1) * 100}%, #4B5563 ${((ttsRate - 0.5) / 1) * 100}%, #4B5563 100%)`,
-                }}
-              />
-              <div className="flex justify-between text-gray-600 text-[10px] mt-0.5">
-                <span>느리게</span>
-                <span>빠르게</span>
-              </div>
-            </div>
-
-            {/* Pitch Slider */}
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="text-gray-400 text-xs">음높이</label>
-                <span className="text-gray-500 text-xs">{ttsPitch.toFixed(1)}</span>
-              </div>
-              <input
-                type="range"
-                min="0.5"
-                max="1.5"
-                step="0.1"
-                value={ttsPitch}
-                onChange={(e) => setTtsPitch(Number(e.target.value))}
-                className="w-full h-1.5 rounded-full appearance-none cursor-pointer"
-                style={{
-                  background: `linear-gradient(to right, ${selectedScenario.color} 0%, ${selectedScenario.color} ${((ttsPitch - 0.5) / 1) * 100}%, #4B5563 ${((ttsPitch - 0.5) / 1) * 100}%, #4B5563 100%)`,
-                }}
-              />
-              <div className="flex justify-between text-gray-600 text-[10px] mt-0.5">
-                <span>낮게</span>
-                <span>높게</span>
-              </div>
-            </div>
-
-            {availableVoices.length === 0 && (
-              <p className="text-yellow-500 text-xs">
-                한국어 음성을 찾을 수 없습니다. Edge 브라우저를 사용하면 더 자연스러운 음성을 이용할 수 있습니다.
-              </p>
-            )}
-          </div>
+            +1 발견!
+          </span>
         )}
       </div>
 
