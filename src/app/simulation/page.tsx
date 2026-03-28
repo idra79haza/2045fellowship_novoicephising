@@ -210,9 +210,24 @@ function SimulationContent() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // TTS (Text-to-Speech) state
-  const [ttsEnabled, setTtsEnabled] = useState(false);
+  const [ttsEnabled, setTtsEnabled] = useState(true); // 기본 활성화
   const [isSpeaking, setIsSpeaking] = useState(false);
   const lastSpokenRef = useRef<string>("");
+  const voicesReadyRef = useRef(false);
+
+  // TTS: preload voices (Chrome loads them asynchronously)
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.speechSynthesis) return;
+    const loadVoices = () => {
+      const voices = window.speechSynthesis.getVoices();
+      if (voices.length > 0) voicesReadyRef.current = true;
+    };
+    loadVoices();
+    window.speechSynthesis.addEventListener("voiceschanged", loadVoices);
+    return () => {
+      window.speechSynthesis.removeEventListener("voiceschanged", loadVoices);
+    };
+  }, []);
 
   // TTS: speak a message
   const speak = useCallback((text: string) => {
@@ -222,9 +237,10 @@ function SimulationContent() {
     utterance.lang = "ko-KR";
     utterance.rate = 0.95;
     utterance.pitch = 0.9;
-    // Try to find a Korean voice
+    // Select Korean voice
     const voices = window.speechSynthesis.getVoices();
-    const koVoice = voices.find((v) => v.lang.startsWith("ko"));
+    const koVoice = voices.find((v) => v.lang === "ko-KR")
+      || voices.find((v) => v.lang.startsWith("ko"));
     if (koVoice) utterance.voice = koVoice;
     utterance.onstart = () => setIsSpeaking(true);
     utterance.onend = () => setIsSpeaking(false);
@@ -242,7 +258,8 @@ function SimulationContent() {
       const key = `${currentPhase}-${messagesShown - 1}`;
       if (lastSpokenRef.current !== key) {
         lastSpokenRef.current = key;
-        speak(lastMsg.text);
+        // Small delay to ensure voices are loaded
+        setTimeout(() => speak(lastMsg.text), 100);
       }
     }
   }, [selectedScenario, currentPhase, messagesShown, ttsEnabled, result, speak]);
